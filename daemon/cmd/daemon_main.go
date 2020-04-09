@@ -670,6 +670,9 @@ func init() {
 	flags.Int(option.PolicyMapEntriesName, defaults.PolicyMapEntries, "Maximum number of entries in endpoint policy map (per endpoint)")
 	option.BindEnv(option.PolicyMapEntriesName)
 
+	flags.Float64(option.MapEntriesGlobalDynamicSizeRatioName, 0.0, "Ratio (0.0-1.0) of total system memory to use for dynamic sizing of CT, NAT and policy BPF maps. Set to 0.0 to disable dynamic BPF map sizing (default: 0.0)")
+	option.BindEnv(option.MapEntriesGlobalDynamicSizeRatioName)
+
 	flags.String(option.CMDRef, "", "Path to cmdref output directory")
 	flags.MarkHidden(option.CMDRef)
 	option.BindEnv(option.CMDRef)
