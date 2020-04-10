@@ -1,4 +1,4 @@
-// Copyright 2017-2018 Authors of Cilium
+// Copyright 2017-2020 Authors of Cilium
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ import (
 	"strconv"
 
 	"github.com/cilium/cilium/common"
+	"github.com/cilium/cilium/pkg/bpf"
+	"github.com/cilium/cilium/pkg/byteorder"
 	"github.com/cilium/cilium/pkg/command"
 	"github.com/cilium/cilium/pkg/maps/ctmap"
 
@@ -43,6 +45,11 @@ func init() {
 	command.AddJSONOutput(bpfCtListCmd)
 }
 
+type ctKeyVal struct {
+	MapKey   ctmap.CtKey
+	MapValue ctmap.CtEntry
+}
+
 func dumpCt(eID string) {
 	var maps []*ctmap.Map
 	if eID == "global" {
@@ -51,6 +58,7 @@ func dumpCt(eID string) {
 		id, _ := strconv.Atoi(eID)
 		maps = ctmap.LocalMaps(&dummyEndpoint{ID: id}, true, true)
 	}
+	entries := make([]ctKeyVal, 0)
 
 	for _, m := range maps {
 		path, err := m.Path()
@@ -69,9 +77,16 @@ func dumpCt(eID string) {
 			Fatalf("Unable to open %s: %s", path, err)
 		}
 		defer m.Close()
+		// Plain output prints immediately, JSON output holds until it
+		// collected values from all maps to have one consistent object
 		if command.OutputJSON() {
-			if err := command.PrintOutput(m); err != nil {
-				os.Exit(1)
+			callback := func(key bpf.MapKey, value bpf.MapValue) {
+				keyval := ctKeyVal{MapKey: key.(ctmap.CtKey).ToHost(), MapValue: *value.(*ctmap.CtEntry)}
+				keyval.MapValue.RevNAT = byteorder.NetworkToHost(keyval.MapValue.RevNAT).(uint16)
+				entries = append(entries, keyval)
+			}
+			if err = m.DumpWithCallback(callback); err != nil {
+				Fatalf("Error while collecting BPF map entries: %s", err)
 			}
 		} else {
 			out, err := m.DumpEntries()
@@ -79,6 +94,11 @@ func dumpCt(eID string) {
 				Fatalf("Error while dumping BPF Map: %s", err)
 			}
 			fmt.Println(out)
+		}
+	}
+	if command.OutputJSON() {
+		if err := command.PrintOutput(entries); err != nil {
+			os.Exit(1)
 		}
 	}
 }
