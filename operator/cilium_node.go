@@ -83,6 +83,11 @@ func startSynchronizingCiliumNodes(nodeManager allocator.NodeEventHandler) {
 		k8s.ConvertToCiliumNode,
 	)
 
+	go func() {
+		cache.WaitForCacheSync(wait.NeverStop, ciliumNodeInformer.HasSynced)
+		close(k8sCiliumNodesCacheSynced)
+	}()
+
 	go ciliumNodeInformer.Run(wait.NeverStop)
 }
 
