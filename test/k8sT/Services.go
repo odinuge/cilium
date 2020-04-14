@@ -155,6 +155,18 @@ var _ = Describe("K8sServicesTest", func() {
 		}
 	}
 
+	testCurlRequestFail := func(clientPodLabel, url string) {
+		pods, err := kubectl.GetPodNames(helpers.DefaultNamespace, clientPodLabel)
+		ExpectWithOffset(1, err).Should(BeNil(), "cannot retrieve pod names by filter %q", testDSClient)
+		for _, pod := range pods {
+			res := kubectl.ExecPodCmd(
+				helpers.DefaultNamespace, pod,
+				helpers.CurlFail(url))
+			ExpectWithOffset(1, res).ShouldNot(helpers.CMDSuccess(),
+				"Pod %q can unexpectedly connect to service %q", pod, url)
+		}
+	}
+
 	waitPodsDs := func() {
 		groups := []string{testDS, testDSClient, testDSK8s2}
 		for _, pod := range groups {
@@ -659,13 +671,13 @@ var _ = Describe("K8sServicesTest", func() {
 				// From pod via loopback (host reachable services)
 				httpURL = getHTTPLink("127.0.0.1", data.Spec.Ports[0].NodePort)
 				tftpURL = getTFTPLink("127.0.0.1", data.Spec.Ports[1].NodePort)
-				testCurlRequest(testDSClient, httpURL)
-				testCurlRequest(testDSClient, tftpURL)
+				testCurlRequestFail(testDSClient, httpURL)
+				testCurlRequestFail(testDSClient, tftpURL)
 
 				httpURL = getHTTPLink("::ffff:127.0.0.1", data.Spec.Ports[0].NodePort)
 				tftpURL = getTFTPLink("::ffff:127.0.0.1", data.Spec.Ports[1].NodePort)
-				testCurlRequest(testDSClient, httpURL)
-				testCurlRequest(testDSClient, tftpURL)
+				testCurlRequestFail(testDSClient, httpURL)
+				testCurlRequestFail(testDSClient, tftpURL)
 
 				// From pod via local cilium_host
 				httpURL = getHTTPLink(localCiliumHostIPv4, data.Spec.Ports[0].NodePort)
