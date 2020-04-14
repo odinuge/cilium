@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/cilium/cilium/pkg/controller"
-	"github.com/cilium/cilium/pkg/ipam"
+	"github.com/cilium/cilium/pkg/ipam/allocator"
 	"github.com/cilium/cilium/pkg/k8s"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/typed/cilium.io/v2"
@@ -47,7 +47,7 @@ import (
 
 var nodeWatcherOnce sync.Once
 
-func runNodeWatcher(nodeManager *ipam.NodeManager) (err error) {
+func runNodeWatcher(nodeManager allocator.NodeEventHandler) (err error) {
 	nodeWatcherOnce.Do(func() {
 		serNodes := serializer.NewFunctionQueue(1024)
 		var ciliumNodeStore *store.SharedStore
