@@ -606,6 +606,10 @@ func loadIPSecKeys(r io.Reader) (int, uint8, error) {
 		if oldSpi != ipSecKey.Spi {
 			go func() {
 				time.Sleep(linux_defaults.IPsecKeyDeleteDelay)
+				if node.GetIPsecKeyIdentity() != ipSecKey.Spi {
+					scopedLog.Info("Encryption keys changed, not reclaiming SPI")
+					return
+				}
 				scopedLog.Info("New encryption keys reclaiming SPI")
 				ipsecDeleteXfrmSpi(ipSecKey.Spi)
 			}()
