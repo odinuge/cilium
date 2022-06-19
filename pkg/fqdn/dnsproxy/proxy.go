@@ -903,8 +903,6 @@ func shouldCompressResponse(request, response *dns.Msg) bool {
 func GetSelectorRegexMap(l7 policy.L7DataMap) (CachedSelectorREEntry, error) {
 	newRE := make(CachedSelectorREEntry)
 	for selector, l7Rules := range l7 {
-		// TODO (@odinuge) short circuit to * if this is true or there is an explicit * in a rule
-		// in order to save complexity of matching, of compilation and for saving memory
 		if l7Rules == nil {
 			l7Rules = &policy.PerSelectorPolicy{L7Rules: api.L7Rules{DNS: []api.PortRuleDNS{{MatchPattern: "*"}}}}
 		}
@@ -912,12 +910,18 @@ func GetSelectorRegexMap(l7 policy.L7DataMap) (CachedSelectorREEntry, error) {
 		for _, dnsRule := range l7Rules.DNS {
 			if len(dnsRule.MatchName) > 0 {
 				dnsRuleName := strings.ToLower(FromFqdn(dnsRule.MatchName))
-				dnsPatternAsRE := ToRegexpWithoutAnchors(dnsRuleName)
+				dnsPatternAsRE, _ := ToRegexpWithoutAnchors(dnsRuleName)
 				reStrings = append(reStrings, dnsPatternAsRE)
 			}
 			if len(dnsRule.MatchPattern) > 0 {
 				dnsPattern := Sanitize(dnsRule.MatchPattern)
-				dnsPatternAsRE := ToRegexpWithoutAnchors(dnsPattern)
+				dnsPatternAsRE, isAllAllowed := ToRegexpWithoutAnchors(dnsPattern)
+				if isAllAllowed {
+					reStrings = []string{
+						"(" + allowedDNSCharsREGroup + "+[.])+|",
+					}
+					break
+				}
 				reStrings = append(reStrings, dnsPatternAsRE)
 			}
 		}
@@ -951,13 +955,13 @@ const allowedDNSCharsREGroup = "[-a-zA-Z0-9_]"
 // validate the pattern.
 // It supports:
 // * to select 0 or more DNS valid characters
-func ToRegexpWithoutAnchors(pattern string) string {
+func ToRegexpWithoutAnchors(pattern string) (string, bool) {
 	pattern = strings.TrimSpace(pattern)
 	pattern = strings.ToLower(pattern)
 
-	// handle the * match-all case. This will filter down to the end.
+	// short circuit because everything is allowed
 	if pattern == "*" {
-		return "(?:" + allowedDNSCharsREGroup + "+[.])+"
+		return "", true
 	}
 
 	// base case. * becomes .*, but only for DNS valid characters
@@ -965,5 +969,5 @@ func ToRegexpWithoutAnchors(pattern string) string {
 	pattern = strings.Replace(pattern, "*", allowedDNSCharsREGroup+"*", -1)
 
 	// base case. "." becomes a literal .
-	return strings.Replace(pattern, ".", "[.]", -1)
+	return strings.Replace(pattern, ".", "[.]", -1), false
 }
