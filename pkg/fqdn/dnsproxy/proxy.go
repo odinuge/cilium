@@ -21,7 +21,6 @@ import (
 
 	"github.com/cilium/cilium/pkg/datapath/linux/linux_defaults"
 	"github.com/cilium/cilium/pkg/endpoint"
-	"github.com/cilium/cilium/pkg/fqdn/matchpattern"
 	"github.com/cilium/cilium/pkg/fqdn/re"
 	"github.com/cilium/cilium/pkg/fqdn/restore"
 	"github.com/cilium/cilium/pkg/identity"
@@ -904,24 +903,26 @@ func shouldCompressResponse(request, response *dns.Msg) bool {
 func GetSelectorRegexMap(l7 policy.L7DataMap) (CachedSelectorREEntry, error) {
 	newRE := make(CachedSelectorREEntry)
 	for selector, l7Rules := range l7 {
+		// TODO (@odinuge) short circuit to * if this is true or there is an explicit * in a rule
+		// in order to save complexity of matching, of compilation and for saving memory
 		if l7Rules == nil {
 			l7Rules = &policy.PerSelectorPolicy{L7Rules: api.L7Rules{DNS: []api.PortRuleDNS{{MatchPattern: "*"}}}}
 		}
 		reStrings := make([]string, 0, len(l7Rules.DNS))
 		for _, dnsRule := range l7Rules.DNS {
 			if len(dnsRule.MatchName) > 0 {
-				dnsRuleName := strings.ToLower(dns.Fqdn(dnsRule.MatchName))
-				dnsPatternAsRE := matchpattern.ToRegexp(dnsRuleName)
+				dnsRuleName := strings.ToLower(FromFqdn(dnsRule.MatchName))
+				dnsPatternAsRE := ToRegexpWithoutAnchors(dnsRuleName)
 				reStrings = append(reStrings, dnsPatternAsRE)
 			}
 			if len(dnsRule.MatchPattern) > 0 {
-				dnsPattern := matchpattern.Sanitize(dnsRule.MatchPattern)
-				dnsPatternAsRE := matchpattern.ToRegexp(dnsPattern)
+				dnsPattern := Sanitize(dnsRule.MatchPattern)
+				dnsPatternAsRE := ToRegexpWithoutAnchors(dnsPattern)
 				reStrings = append(reStrings, dnsPatternAsRE)
 			}
 		}
 		mp := strings.Join(reStrings, "|")
-		rei, err := re.CompileRegex(mp)
+		rei, err := re.CompileRegex("^(?:" + mp + ")[.]$")
 		if err != nil {
 			return nil, err
 		}
@@ -929,4 +930,40 @@ func GetSelectorRegexMap(l7 policy.L7DataMap) (CachedSelectorREEntry, error) {
 	}
 
 	return newRE, nil
+}
+func FromFqdn(s string) string {
+	if !dns.IsFqdn(s) {
+		return s
+	}
+	return strings.Replace(s, ".", "", 1)
+}
+func Sanitize(pattern string) string {
+	if pattern == "*" {
+		return pattern
+	}
+
+	return FromFqdn(pattern)
+}
+
+const allowedDNSCharsREGroup = "[-a-zA-Z0-9_]"
+
+// ToRegexp converts a MatchPattern field into a regexp string. It does not
+// validate the pattern.
+// It supports:
+// * to select 0 or more DNS valid characters
+func ToRegexpWithoutAnchors(pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	pattern = strings.ToLower(pattern)
+
+	// handle the * match-all case. This will filter down to the end.
+	if pattern == "*" {
+		return "(?:" + allowedDNSCharsREGroup + "+[.])+"
+	}
+
+	// base case. * becomes .*, but only for DNS valid characters
+	// NOTE: this only works because the case above does not leave the *
+	pattern = strings.Replace(pattern, "*", allowedDNSCharsREGroup+"*", -1)
+
+	// base case. "." becomes a literal .
+	return strings.Replace(pattern, ".", "[.]", -1)
 }
