@@ -10,10 +10,12 @@ import (
 	"math"
 	"net"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
@@ -175,7 +177,7 @@ func (p *DNSProxy) checkRestored(endpointID uint64, destPort uint16, destIP stri
 	}
 
 	for i := range ipRules {
-		if _, exists := ipRules[i].IPs[destIP]; (exists || ipRules[i].IPs == nil) && ipRules[i].Re.MatchString(name) {
+		if _, exists := ipRules[i].IPs[destIP]; (exists || ipRules[i].IPs == nil) && ipRules[i].Re.MatchString(Reverse(FromFqdn(name))) {
 			return true
 		}
 	}
@@ -551,7 +553,7 @@ func (p *DNSProxy) CheckAllowed(endpointID uint64, destPort uint16, destID ident
 
 	for selector, re := range epAllow {
 		// The port was matched in getPortRulesForID, above.
-		if selector.Selects(destID) && re.MatchString(name) {
+		if selector.Selects(destID) && re.MatchString(Reverse(FromFqdn(name))) {
 			return true, nil
 		}
 	}
@@ -909,24 +911,26 @@ func GetSelectorRegexMap(l7 policy.L7DataMap) (CachedSelectorREEntry, error) {
 		reStrings := make([]string, 0, len(l7Rules.DNS))
 		for _, dnsRule := range l7Rules.DNS {
 			if len(dnsRule.MatchName) > 0 {
-				dnsRuleName := strings.ToLower(FromFqdn(dnsRule.MatchName))
-				dnsPatternAsRE, _ := ToRegexpWithoutAnchors(dnsRuleName)
+				dnsRuleName := FromFqdn(dnsRule.MatchName)
+				dnsPatternAsRE, _ := CustomToRegexp(Reverse(dnsRuleName))
 				reStrings = append(reStrings, dnsPatternAsRE)
 			}
 			if len(dnsRule.MatchPattern) > 0 {
-				dnsPattern := Sanitize(dnsRule.MatchPattern)
-				dnsPatternAsRE, isAllAllowed := ToRegexpWithoutAnchors(dnsPattern)
+				dnsPattern := FromFqdn(dnsRule.MatchPattern)
+				dnsPatternAsRE, isAllAllowed := CustomToRegexp(Reverse(dnsPattern))
 				if isAllAllowed {
 					reStrings = []string{
-						"(" + allowedDNSCharsREGroup + "+[.])+|",
+						"|" + allowedDNSCharsREGroup + "([.]" + allowedDNSCharsREGroup + "+)*",
 					}
 					break
 				}
 				reStrings = append(reStrings, dnsPatternAsRE)
 			}
 		}
-		mp := strings.Join(reStrings, "|")
-		rei, err := re.CompileRegex("^(?:" + mp + ")[.]$")
+		// Sort the rules to make faster regexes
+		sort.Strings(reStrings)
+		rei, err := re.CompileRegex("^[.](?:" + strings.Join(reStrings, "|") + ")$")
+
 		if err != nil {
 			return nil, err
 		}
@@ -935,11 +939,13 @@ func GetSelectorRegexMap(l7 policy.L7DataMap) (CachedSelectorREEntry, error) {
 
 	return newRE, nil
 }
+
+// Removes the last trailing dot in case its an fqdn
 func FromFqdn(s string) string {
 	if !dns.IsFqdn(s) {
 		return s
 	}
-	return strings.Replace(s, ".", "", 1)
+	return s[:len(s)-1]
 }
 func Sanitize(pattern string) string {
 	if pattern == "*" {
@@ -947,6 +953,16 @@ func Sanitize(pattern string) string {
 	}
 
 	return FromFqdn(pattern)
+}
+func Reverse(s string) string {
+	size := len(s)
+	buf := make([]byte, size)
+	for start := 0; start < size; {
+		r, n := utf8.DecodeRuneInString(s[start:])
+		start += n
+		utf8.EncodeRune(buf[size-start:], r)
+	}
+	return string(buf)
 }
 
 const allowedDNSCharsREGroup = "[-a-zA-Z0-9_]"
@@ -970,4 +986,24 @@ func ToRegexpWithoutAnchors(pattern string) (string, bool) {
 
 	// base case. "." becomes a literal .
 	return strings.Replace(pattern, ".", "[.]", -1), false
+}
+
+func CustomToRegexp(pattern string) (string, bool) {
+	pattern = strings.TrimSpace(pattern)
+	pattern = strings.ToLower(pattern)
+
+	// handle the * match-all case. This will filter down to the end.
+	if pattern == "*" {
+		return "", true
+	}
+
+	// base case. * becomes .*, but only for DNS valid characters
+	// NOTE: this only works because the case above does not leave the *
+	pattern = strings.Replace(pattern, "*", allowedDNSCharsREGroup+"*", -1)
+
+	// base case. "." becomes a literal .
+	pattern = strings.Replace(pattern, ".", "[.]", -1)
+
+	// Anchor the match to require the whole string to match this expression
+	return pattern, false
 }
