@@ -14,6 +14,7 @@ import (
 	"io/ioutil"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -250,7 +251,17 @@ func (s *DNSProxyTestSuite) SetUpTest(c *C) {
 }
 
 func (s *DNSProxyTestSuite) TearDownTest(c *C) {
-	s.proxy.allowed = make(perEPAllow)
+	for epID := range s.proxy.allowed {
+		for port := range s.proxy.allowed[epID] {
+			s.proxy.UpdateAllowed(epID, port, nil)
+		}
+	}
+	for epID := range s.proxy.restored {
+		s.proxy.RemoveRestoredRules(uint16(epID))
+	}
+	if len(s.proxy.cache.patternMatcherCache) > 0 {
+		c.Error("cache not fully empty after removing all rules. Possible memory leak found.")
+	}
 	s.proxy.SetRejectReply(option.FQDNProxyDenyWithRefused)
 	s.dnsServer.Listener.Close()
 	s.proxy.UDPServer.Shutdown()
@@ -630,16 +641,13 @@ func (s *DNSProxyTestSuite) TestFullPathDependence(c *C) {
 
 	// Get rules for restoration
 	expected1 := restore.DNSRules{
-		53: restore.IPRules{{
-			IPs: map[string]struct{}{"::": {}},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID1][53][cachedDstID1Selector]},
-		}, {
-			IPs: map[string]struct{}{"127.0.0.1": {}, "127.0.0.2": {}},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID1][53][cachedDstID2Selector]},
-		}}.Sort(),
-		54: restore.IPRules{{
-			Re: restore.RuleRegex{Regexp: s.proxy.allowed[epID1][54][cachedWildcardSelector]},
-		}},
+		53: restore.IPRules{
+			s.proxy.allowed[epID1][53][cachedDstID1Selector].asIPRule(map[string]struct{}{"::": {}}),
+			s.proxy.allowed[epID1][53][cachedDstID2Selector].asIPRule(map[string]struct{}{"127.0.0.1": {}, "127.0.0.2": {}}),
+		}.Sort(),
+		54: restore.IPRules{
+			s.proxy.allowed[epID1][54][cachedWildcardSelector].asIPRule(nil),
+		},
 	}
 	restored1, _ := s.proxy.GetRules(uint16(epID1))
 	restored1.Sort()
@@ -651,16 +659,11 @@ func (s *DNSProxyTestSuite) TestFullPathDependence(c *C) {
 	c.Assert(restored2, checker.DeepEquals, expected2)
 
 	expected3 := restore.DNSRules{
-		53: restore.IPRules{{
-			IPs: map[string]struct{}{"::": {}},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID3][53][cachedDstID1Selector]},
-		}, {
-			IPs: map[string]struct{}{},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID3][53][cachedDstID3Selector]},
-		}, {
-			IPs: map[string]struct{}{},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID3][53][cachedDstID4Selector]},
-		}}.Sort(),
+		53: restore.IPRules{
+			s.proxy.allowed[epID3][53][cachedDstID1Selector].asIPRule(map[string]struct{}{"::": {}}),
+			s.proxy.allowed[epID3][53][cachedDstID3Selector].asIPRule(map[string]struct{}{}),
+			s.proxy.allowed[epID3][53][cachedDstID4Selector].asIPRule(map[string]struct{}{}),
+		}.Sort(),
 	}
 	restored3, _ := s.proxy.GetRules(uint16(epID3))
 	restored3.Sort()
@@ -671,16 +674,13 @@ func (s *DNSProxyTestSuite) TestFullPathDependence(c *C) {
 	s.proxy.usedServers = map[string]struct{}{"127.0.0.2": {}}
 
 	expected1b := restore.DNSRules{
-		53: restore.IPRules{{
-			IPs: map[string]struct{}{},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID1][53][cachedDstID1Selector]},
-		}, {
-			IPs: map[string]struct{}{"127.0.0.2": {}},
-			Re:  restore.RuleRegex{Regexp: s.proxy.allowed[epID1][53][cachedDstID2Selector]},
-		}}.Sort(),
-		54: restore.IPRules{{
-			Re: restore.RuleRegex{Regexp: s.proxy.allowed[epID1][54][cachedWildcardSelector]},
-		}},
+		53: restore.IPRules{
+			s.proxy.allowed[epID1][53][cachedDstID1Selector].asIPRule(map[string]struct{}{}),
+			s.proxy.allowed[epID1][53][cachedDstID2Selector].asIPRule(map[string]struct{}{"127.0.0.2": {}}),
+		}.Sort(),
+		54: restore.IPRules{
+			s.proxy.allowed[epID1][54][cachedWildcardSelector].asIPRule(nil),
+		},
 	}
 	restored1b, _ := s.proxy.GetRules(uint16(epID1))
 	restored1b.Sort()
@@ -922,28 +922,43 @@ func (s *DNSProxyTestSuite) TestRestoredEndpoint(c *C) {
 	// connet with TCP, and the server only listens on TCP.
 
 	name := "cilium.io."
+	pattern := "*.cilium.com."
 	l7map := policy.L7DataMap{
 		cachedDstID1Selector: &policy.PerSelectorPolicy{
 			L7Rules: api.L7Rules{
-				DNS: []api.PortRuleDNS{{MatchName: name}},
+				DNS: []api.PortRuleDNS{{MatchName: name}, {MatchPattern: pattern}},
 			},
 		},
 	}
-	query := name
+	queries := []string{name, strings.ReplaceAll(pattern, "*", "sub")}
 
+	c.TestName()
 	err := s.proxy.UpdateAllowed(epID1, dstPort, l7map)
 	c.Assert(err, Equals, nil, Commentf("Could not update with rules"))
-	allowed, err := s.proxy.CheckAllowed(epID1, dstPort, dstID1, nil, query)
-	c.Assert(err, Equals, nil, Commentf("Error when checking allowed"))
-	c.Assert(allowed, Equals, true, Commentf("request was rejected when it should be allowed"))
+	for _, query := range queries {
+		allowed, err := s.proxy.CheckAllowed(epID1, dstPort, dstID1, nil, query)
+		c.Assert(err, Equals, nil, Commentf("Error when checking allowed query: %q", query))
+		c.Assert(allowed, Equals, true, Commentf("request was rejected when it should be allowed for query: %q", query))
+	}
 
 	// 1st request
-	request := new(dns.Msg)
-	request.SetQuestion(query, dns.TypeA)
-	response, rtt, err := s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
-	c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v)", rtt))
-	c.Assert(len(response.Answer), Equals, 1, Commentf("Proxy returned incorrect number of answer RRs %s", response))
-	c.Assert(response.Answer[0].String(), Equals, "cilium.io.\t60\tIN\tA\t1.1.1.1", Commentf("Proxy returned incorrect RRs"))
+	for _, query := range queries {
+		request := new(dns.Msg)
+		request.SetQuestion(query, dns.TypeA)
+		response, rtt, err := s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
+		c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v) (query: %q)", rtt, query))
+		c.Assert(len(response.Answer), Equals, 1, Commentf("Proxy returned incorrect number of answer RRs %s (query: %q)", response, query))
+		c.Assert(response.Answer[0].String(), Equals, query+"\t60\tIN\tA\t1.1.1.1", Commentf("Proxy returned incorrect RRs"))
+	}
+
+	for _, query := range queries {
+		request := new(dns.Msg)
+		request.SetQuestion(query, dns.TypeA)
+		response, rtt, err := s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
+		c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v) (query: %q)", rtt, query))
+		c.Assert(len(response.Answer), Equals, 1, Commentf("Proxy returned incorrect number of answer RRs %s (query: %q)", response, query))
+		c.Assert(response.Answer[0].String(), Equals, query+"\t60\tIN\tA\t1.1.1.1", Commentf("Proxy returned incorrect RRs"))
+	}
 
 	// Get restored rules
 	restored, _ := s.proxy.GetRules(uint16(epID1))
@@ -954,12 +969,14 @@ func (s *DNSProxyTestSuite) TestRestoredEndpoint(c *C) {
 	c.Assert(err, Equals, nil, Commentf("Could not remove rules"))
 
 	// 2nd request, refused due to no rules
-	request = new(dns.Msg)
-	request.SetQuestion(query, dns.TypeA)
-	response, rtt, err = s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
-	c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v)", rtt))
-	c.Assert(len(response.Answer), Equals, 0, Commentf("Proxy returned incorrect number of answer RRs %s", response))
-	c.Assert(response.Rcode, Equals, dns.RcodeRefused, Commentf("DNS request from test client was not rejected when it should be blocked"))
+	for _, query := range queries {
+		request := new(dns.Msg)
+		request.SetQuestion(query, dns.TypeA)
+		response, rtt, err := s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
+		c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v) (query: %q)", rtt, query))
+		c.Assert(len(response.Answer), Equals, 0, Commentf("Proxy returned incorrect number of answer RRs %s (query: %q)", response, query))
+		c.Assert(response.Rcode, Equals, dns.RcodeRefused, Commentf("DNS request from test client was not rejected when it should be blocked (query: %q)", query))
+	}
 
 	// restore rules, set the mock to restoring state
 	s.restoring = true
@@ -972,13 +989,14 @@ func (s *DNSProxyTestSuite) TestRestoredEndpoint(c *C) {
 	c.Assert(exists, Equals, true)
 
 	// 3nd request, answered due to restored Endpoint and rules being found
-	request = new(dns.Msg)
-	request.SetQuestion(query, dns.TypeA)
-	response, rtt, err = s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
-	c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v)", rtt))
-	c.Assert(len(response.Answer), Equals, 1, Commentf("Proxy returned incorrect number of answer RRs %s", response))
-	c.Assert(response.Answer[0].String(), Equals, "cilium.io.\t60\tIN\tA\t1.1.1.1", Commentf("Proxy returned incorrect RRs"))
-
+	for _, query := range queries {
+		request := new(dns.Msg)
+		request.SetQuestion(query, dns.TypeA)
+		response, rtt, err := s.dnsTCPClient.Exchange(request, s.proxy.TCPServer.Listener.Addr().String())
+		c.Assert(err, IsNil, Commentf("DNS request from test client failed when it should succeed (RTT: %v) (query: %q)", rtt, query))
+		c.Assert(len(response.Answer), Equals, 1, Commentf("Proxy returned incorrect number of answer RRs %s (query: %q)", response, query))
+		c.Assert(response.Answer[0].String(), Equals, query+"\t60\tIN\tA\t1.1.1.1", Commentf("Proxy returned incorrect RRs"))
+	}
 	// cleanup
 	s.proxy.RemoveRestoredRules(uint16(epID1))
 	_, exists = s.proxy.restored[epID1]
@@ -1056,13 +1074,22 @@ func Benchmark_perEPAllow_setPortRulesForID(b *testing.B) {
 	}
 
 	pea := perEPAllow{}
+	cache := newMatcherCache()
 	re.InitRegexCompileLRU(128)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for epID := uint64(0); epID < 20; epID++ {
-			pea.setPortRulesForID(epID, 8053, newRules)
+			pea.setPortRulesForID(cache, epID, 8053, newRules)
 		}
+	}
+	b.StopTimer()
+	// Remove all the inserted rules to ensure both indexes go to zero entries
+	for epID := uint64(0); epID < 20; epID++ {
+		pea.setPortRulesForID(cache, epID, 8053, nil)
+	}
+	if len(pea) > 0 || len(cache.patternMatcherCache) > 0 {
+		b.Fail()
 	}
 }
 
@@ -1151,11 +1178,12 @@ func Benchmark_perEPAllow_setPortRulesForID_large(b *testing.B) {
 	fmt.Printf("\tNumGC = %v\n", m.NumGC)
 
 	pea := perEPAllow{}
+	cache := newMatcherCache()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for epID := uint64(0); epID < numEPs; epID++ {
-			pea.setPortRulesForID(epID, 8053, rules)
+			pea.setPortRulesForID(cache, epID, 8053, rules)
 		}
 	}
 	b.StopTimer()
@@ -1175,6 +1203,13 @@ func Benchmark_perEPAllow_setPortRulesForID_large(b *testing.B) {
 	fmt.Printf("\tHeapInuse = %v MiB", bToMb(m.HeapInuse))
 	fmt.Printf("\tSys = %v MiB", bToMb(m.Sys))
 	fmt.Printf("\tNumGC = %v\n", m.NumGC)
+	// Remove all the inserted rules to ensure both indexes go to zero entries
+	for epID := uint64(0); epID < numEPs; epID++ {
+		pea.setPortRulesForID(cache, epID, 8053, nil)
+	}
+	if len(pea) > 0 || len(cache.patternMatcherCache) > 0 {
+		b.Fail()
+	}
 }
 
 func getMemStats() runtime.MemStats {
