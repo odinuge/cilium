@@ -30,8 +30,8 @@ var _ = Suite(&MatchPatternTestSuite{})
 func (ts *MatchPatternTestSuite) TestAnchoredMatchPatternREConversion(c *C) {
 	for source, target := range map[string]string{
 		"cilium.io.":   "^cilium[.]io[.]$",
-		"*.cilium.io.": "^" + allowedDNSCharsREGroup + "*[.]cilium[.]io[.]$",
-		"*":            "(^(" + allowedDNSCharsREGroup + "+[.])+$)|(^[.]$)",
+		"*.cilium.io.": "^" + reRangeNotDot + "*[.]cilium[.]io[.]$",
+		"*":            "(^(" + reRangeNotDot + "+[.])+$)|(^[.]$)",
 		".":            "^[.]$",
 	} {
 		reStr := ToAnchoredRegexp(source)
@@ -44,7 +44,7 @@ func (ts *MatchPatternTestSuite) TestAnchoredMatchPatternREConversion(c *C) {
 func (ts *MatchPatternTestSuite) TestUnAnchoredMatchPatternREConversion(c *C) {
 	for source, target := range map[string]string{
 		"cilium.io.":   "cilium[.]io[.]",
-		"*.cilium.io.": allowedDNSCharsREGroup + "*[.]cilium[.]io[.]",
+		"*.cilium.io.": reRangeNotDot + "*[.]cilium[.]io[.]",
 		"*":            MatchAllPattern,
 		".":            "[.]",
 	} {

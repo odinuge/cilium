@@ -12,7 +12,7 @@ import (
 	"github.com/cilium/cilium/pkg/fqdn/re"
 )
 
-const allowedDNSCharsREGroup = "[-a-zA-Z0-9_]"
+const reRangeNotDot = "[^.]"
 const MatchAllPattern = "^.*$"
 const MatchNonePattern = "^-$"
 
@@ -65,12 +65,12 @@ func ToAnchoredRegexp(pattern string) string {
 
 	// handle the * match-all case. This will filter down to the end.
 	if pattern == "*" {
-		return "(^(" + allowedDNSCharsREGroup + "+[.])+$)|(^[.]$)"
+		return "(^(" + reRangeNotDot + "+[.])+$)|(^[.]$)"
 	}
 
 	// base case. * becomes .*, but only for DNS valid characters
 	// NOTE: this only works because the case above does not leave the *
-	pattern = strings.Replace(pattern, "*", allowedDNSCharsREGroup+"*", -1)
+	pattern = strings.Replace(pattern, "*", reRangeNotDot+"*", -1)
 
 	// base case. "." becomes a literal .
 	pattern = strings.Replace(pattern, ".", "[.]", -1)
@@ -98,8 +98,7 @@ func escapeRegexpCharacters(pattern string) string {
 	// base case. "." becomes a literal .
 	pattern = strings.Replace(pattern, ".", "[.]", -1)
 
-	// base case. * becomes .*, but only for DNS valid characters
-	// NOTE: this only works because the case above does not leave the *
-	pattern = strings.Replace(pattern, "*", allowedDNSCharsREGroup+"*", -1)
+	// base case. * becomes .*, but only for chars other than dots (.)
+	pattern = strings.Replace(pattern, "*", reRangeNotDot+"*", -1)
 	return pattern
 }
