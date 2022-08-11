@@ -37,3 +37,10 @@ func FQDN(s string) string {
 	}
 	return strings.ToLower(s) + "."
 }
+
+func FromFQDN(s string) string {
+	if isFQDN(s) {
+		return strings.ToLower(strings.TrimSuffix(s, "."))
+	}
+	return strings.ToLower(s)
+}

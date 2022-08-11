@@ -65,3 +65,23 @@ func TestFQDN(t *testing.T) {
 		}
 	}
 }
+func TestFromFQDN(t *testing.T) {
+	for _, tt := range []struct {
+		s      string
+		expect string
+	}{
+		{".", ""},
+		{"\\..", "\\."},
+		{"example.org.", "example.org"},
+		{"example.org", "example.org"},
+		{"example.org\\..", "example.org\\."},
+		{"example.org\\.", "example.org\\."},
+		{"example.org\\\\.", "example.org\\\\"},
+		{"EXAMPLE.ORG.", "example.org"},
+		{"eXAMPLE.org.", "example.org"},
+	} {
+		if got := FromFQDN(tt.s); got != tt.expect {
+			t.Errorf("isFQDN(%q) = %q, expected %q", tt.s, got, tt.expect)
+		}
+	}
+}

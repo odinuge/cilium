@@ -22,6 +22,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/datapath/linux/linux_defaults"
 	"github.com/cilium/cilium/pkg/endpoint"
+	ciliumdns "github.com/cilium/cilium/pkg/fqdn/dns"
 	"github.com/cilium/cilium/pkg/fqdn/matchpattern"
 	"github.com/cilium/cilium/pkg/fqdn/re"
 	"github.com/cilium/cilium/pkg/fqdn/restore"
@@ -1094,12 +1095,12 @@ func GeneratePattern(l7Rules *policy.PerSelectorPolicy) (pattern string) {
 	reStrings := make([]string, 0, len(l7Rules.DNS))
 	for _, dnsRule := range l7Rules.DNS {
 		if len(dnsRule.MatchName) > 0 {
-			dnsRuleName := strings.ToLower(dns.Fqdn(dnsRule.MatchName))
+			dnsRuleName := ciliumdns.FromFQDN(dnsRule.MatchName)
 			dnsRuleNameAsRE, _ := matchpattern.ToUnAnchoredRegexp(dnsRuleName)
 			reStrings = append(reStrings, dnsRuleNameAsRE)
 		}
 		if len(dnsRule.MatchPattern) > 0 {
-			dnsPattern := matchpattern.Sanitize(dnsRule.MatchPattern)
+			dnsPattern := ciliumdns.FromFQDN(dnsRule.MatchPattern)
 			dnsPatternAsRE, isWildcard := matchpattern.ToUnAnchoredRegexp(dnsPattern)
 			if isWildcard {
 				return dnsPatternAsRE
@@ -1108,5 +1109,5 @@ func GeneratePattern(l7Rules *policy.PerSelectorPolicy) (pattern string) {
 		}
 	}
 	sort.Strings(reStrings)
-	return "^(?:" + strings.Join(reStrings, "|") + ")$"
+	return "^(?:" + strings.Join(reStrings, "|") + ")[.]$"
 }
