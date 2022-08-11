@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -218,7 +219,7 @@ func (r fqdnMatcher) matchFQDN(fqdn string) bool {
 
 // asIPRule returns a new restore.IPRule representing the matcher, including the provided IP map.
 func (r fqdnMatcher) asIPRule(IPs map[string]struct{}) restore.IPRule {
-	pattern := "^-$"
+	pattern := matchpattern.MatchNonePattern
 	if r.patternMatcher != nil {
 		pattern = r.patternMatcher.String()
 	}
@@ -1094,14 +1095,18 @@ func GeneratePattern(l7Rules *policy.PerSelectorPolicy) (pattern string) {
 	for _, dnsRule := range l7Rules.DNS {
 		if len(dnsRule.MatchName) > 0 {
 			dnsRuleName := strings.ToLower(dns.Fqdn(dnsRule.MatchName))
-			reStrings = append(reStrings, "("+matchpattern.ToRegexp(dnsRuleName)+")")
+			dnsRuleNameAsRE, _ := matchpattern.ToUnAnchoredRegexp(dnsRuleName)
+			reStrings = append(reStrings, dnsRuleNameAsRE)
 		}
 		if len(dnsRule.MatchPattern) > 0 {
 			dnsPattern := matchpattern.Sanitize(dnsRule.MatchPattern)
-			dnsPatternAsRE := matchpattern.ToRegexp(dnsPattern)
-			reStrings = append(reStrings, "("+dnsPatternAsRE+")")
+			dnsPatternAsRE, isWildcard := matchpattern.ToUnAnchoredRegexp(dnsPattern)
+			if isWildcard {
+				return dnsPatternAsRE
+			}
+			reStrings = append(reStrings, dnsPatternAsRE)
 		}
 	}
-
-	return strings.Join(reStrings, "|")
+	sort.Strings(reStrings)
+	return "^(?:" + strings.Join(reStrings, "|") + ")$"
 }
