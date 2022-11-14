@@ -83,8 +83,8 @@ func (ls LabelArray) Labels() Labels {
 // needed contains no labels, Contains() will always return true
 func (ls LabelArray) Contains(needed LabelArray) bool {
 nextLabel:
-	for i := range needed {
-		for l := range ls {
+	for i := len(needed) - 1; i >= 0; i-- {
+		for l := len(ls) - 1; l >= 0; l-- {
 			if needed[i].matches(&ls[l]) {
 				continue nextLabel
 			}

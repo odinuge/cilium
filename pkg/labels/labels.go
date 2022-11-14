@@ -231,10 +231,10 @@ func NewLabel(key string, value string, source string) Label {
 
 // Equals returns true if source, Key and Value are equal and false otherwise.
 func (l *Label) Equals(b *Label) bool {
-	if !l.IsAnySource() && l.Source != b.Source {
+	if l.Value != b.Value || l.Key != b.Key {
 		return false
 	}
-	return l.Key == b.Key && l.Value == b.Value
+	return l.IsAnySource() || l.Source == b.Source
 }
 
 // IsAnySource return if the label was set with source "any".
