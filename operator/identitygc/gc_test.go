@@ -281,10 +281,10 @@ func setupCiliumEndpointWatcher(
 				&v2.CiliumEndpoint{},
 				0,
 				cache.ResourceEventHandlerFuncs{},
-				func(obj interface{}) (interface{}, error) {
+				func(obj interface{}) interface{} {
 					endpointObj, ok := obj.(*v2.CiliumEndpoint)
 					if !ok {
-						return nil, errors.New("failed to convert cilium endpoint")
+						return errors.New("failed to convert cilium endpoint")
 					}
 					return &v2.CiliumEndpoint{
 						TypeMeta: endpointObj.TypeMeta,
@@ -294,7 +294,7 @@ func setupCiliumEndpointWatcher(
 						Status: v2.EndpointStatus{
 							Identity: endpointObj.Status.Identity,
 						},
-					}, nil
+					}
 				},
 				watchers.CiliumEndpointStore,
 			)

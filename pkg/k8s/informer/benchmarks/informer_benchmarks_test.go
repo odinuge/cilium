@@ -466,7 +466,7 @@ func (k *K8sIntegrationSuite) benchmarkInformer(ctx context.Context, nCycles int
 					wg.Done()
 				},
 			},
-			k8s.TransformToNode,
+			k8s.ConvertToNode,
 		)
 		go controller.Run(ctx.Done())
 	} else {

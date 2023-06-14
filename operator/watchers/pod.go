@@ -5,7 +5,6 @@ package watchers
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,7 +62,7 @@ func PodsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sClient.Clien
 		&slim_corev1.Pod{},
 		0,
 		cache.ResourceEventHandlerFuncs{},
-		transformToPod,
+		convertToPod,
 		PodStore,
 	)
 	wg.Add(1)
@@ -75,12 +74,10 @@ func PodsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sClient.Clien
 	cache.WaitForCacheSync(ctx.Done(), podInformer.HasSynced)
 }
 
-// transformToPod stores a minimal version of the pod as it is only intended
+// convertToPod stores a minimal version of the pod as it is only intended
 // for it to check if a pod is running in the cluster or not. The stored pod
 // should not be used to update an existing pod in the kubernetes cluster.
-// If the given obj can't be cast into either Pod nor DeletedFinalStateUnknown,
-// an error is returned.
-func transformToPod(obj interface{}) (interface{}, error) {
+func convertToPod(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *slim_corev1.Pod:
 		p := &slim_corev1.Pod{
@@ -98,11 +95,11 @@ func transformToPod(obj interface{}) (interface{}, error) {
 			},
 		}
 		*concreteObj = slim_corev1.Pod{}
-		return p, nil
+		return p
 	case cache.DeletedFinalStateUnknown:
 		pod, ok := concreteObj.Obj.(*slim_corev1.Pod)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		dfsu := cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
@@ -123,9 +120,9 @@ func transformToPod(obj interface{}) (interface{}, error) {
 		}
 		// Small GC optimization
 		*pod = slim_corev1.Pod{}
-		return dfsu, nil
+		return dfsu
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
@@ -141,7 +138,7 @@ func UnmanagedPodsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sCli
 		&slim_corev1.Pod{},
 		0,
 		cache.ResourceEventHandlerFuncs{},
-		TransformToUnmanagedPod,
+		convertToUnmanagedPod,
 	)
 	wg.Add(1)
 	go func() {
@@ -152,7 +149,7 @@ func UnmanagedPodsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sCli
 	cache.WaitForCacheSync(ctx.Done(), unmanagedPodInformer.HasSynced)
 }
 
-func TransformToUnmanagedPod(obj interface{}) (interface{}, error) {
+func convertToUnmanagedPod(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *slim_corev1.Pod:
 		p := &slim_corev1.Pod{
@@ -170,11 +167,11 @@ func TransformToUnmanagedPod(obj interface{}) (interface{}, error) {
 			},
 		}
 		*concreteObj = slim_corev1.Pod{}
-		return p, nil
+		return p
 	case cache.DeletedFinalStateUnknown:
 		pod, ok := concreteObj.Obj.(*slim_corev1.Pod)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		dfsu := cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
@@ -195,8 +192,8 @@ func TransformToUnmanagedPod(obj interface{}) (interface{}, error) {
 		}
 		// Small GC optimization
 		*pod = slim_corev1.Pod{}
-		return dfsu, nil
+		return dfsu
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }

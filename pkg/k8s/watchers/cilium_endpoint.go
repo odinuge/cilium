@@ -77,7 +77,7 @@ func (k *K8sWatcher) ciliumEndpointsInit(ciliumNPClient client.Clientset, asyncC
 					k.endpointDeleted(ciliumEndpoint)
 				},
 			},
-			k8s.TransformToCiliumEndpoint,
+			k8s.ConvertToCiliumEndpoint,
 			cache.Indexers{
 				"localNode": CreateCiliumEndpointLocalPodIndexFunc(),
 			},

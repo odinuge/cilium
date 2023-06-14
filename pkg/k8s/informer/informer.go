@@ -36,42 +36,47 @@ func init() {
 	)
 }
 
-// NewInformer is a copy of k8s.io/client-go/tools/cache/NewInformer includes the default cache MutationDetector.
+type ConvertFunc func(obj interface{}) interface{}
+
+// NewInformer is a copy of k8s.io/client-go/tools/cache/NewInformer with a new
+// argument which converts an object into another object that can be stored in
+// the local cache.
 func NewInformer(
 	lw cache.ListerWatcher,
 	objType k8sRuntime.Object,
 	resyncPeriod time.Duration,
 	h cache.ResourceEventHandler,
-	transformer cache.TransformFunc,
+	convertFunc ConvertFunc,
 ) (cache.Store, cache.Controller) {
 	// This will hold the client state, as we know it.
 	clientState := cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc)
 
-	return clientState, NewInformerWithStore(lw, objType, resyncPeriod, h, transformer, clientState)
+	return clientState, NewInformerWithStore(lw, objType, resyncPeriod, h, convertFunc, clientState)
 }
 
-// NewIndexerInformer is a copy of k8s.io/client-go/tools/cache/NewIndexerInformer but includes the
-// default cache MutationDetector.
+// NewIndexerInformer is a copy of k8s.io/client-go/tools/cache/NewIndexerInformer with a new
+// argument which converts an object into another object that can be stored in
+// the local cache.
 func NewIndexerInformer(
 	lw cache.ListerWatcher,
 	objType k8sRuntime.Object,
 	resyncPeriod time.Duration,
 	h cache.ResourceEventHandler,
-	transformer cache.TransformFunc,
+	convertFunc ConvertFunc,
 	indexers cache.Indexers,
 ) (cache.Indexer, cache.Controller) {
 	clientState := cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, indexers)
-	return clientState, NewInformerWithStore(lw, objType, resyncPeriod, h, transformer, clientState)
+	return clientState, NewInformerWithStore(lw, objType, resyncPeriod, h, convertFunc, clientState)
 }
 
-// NewInformerWithStore uses the same arguments as NewInformer for which a caller can also set a
-// cache.Store and includes the default cache MutationDetector.
+// NewInformerWithStore uses the same arguments as NewInformer for which a
+// caller can also set a cache.Store.
 func NewInformerWithStore(
 	lw cache.ListerWatcher,
 	objType k8sRuntime.Object,
 	resyncPeriod time.Duration,
 	h cache.ResourceEventHandler,
-	transformer cache.TransformFunc,
+	convertFunc ConvertFunc,
 	clientState cache.Store,
 ) cache.Controller {
 
@@ -95,11 +100,8 @@ func NewInformerWithStore(
 			for _, d := range obj.(cache.Deltas) {
 
 				var obj interface{}
-				if transformer != nil {
-					var err error
-					if obj, err = transformer(d.Object); err != nil {
-						return err
-					}
+				if convertFunc != nil {
+					obj = convertFunc(d.Object)
 				} else {
 					obj = d.Object
 				}

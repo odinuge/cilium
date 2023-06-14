@@ -472,12 +472,12 @@ func ConvertToSlimIngressLoadBalancerStatus(slimLBStatus *slim_corev1.LoadBalanc
 	}
 }
 
-// TransformToK8sService transforms a *v1.Service into a
+// ConvertToK8sService converts a *v1.Service into a
 // *slim_corev1.Service or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *slim_corev1.Service in its Obj.
 // If the given obj can't be cast into either *slim_corev1.Service
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToK8sService(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToK8sService(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *v1.Service:
 		return &slim_corev1.Service{
@@ -510,11 +510,11 @@ func TransformToK8sService(obj interface{}) (interface{}, error) {
 					Ingress: convertToK8sLoadBalancerIngress(concreteObj.Status.LoadBalancer.Ingress),
 				},
 			},
-		}, nil
+		}
 	case cache.DeletedFinalStateUnknown:
 		svc, ok := concreteObj.Obj.(*v1.Service)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
@@ -549,33 +549,35 @@ func TransformToK8sService(obj interface{}) (interface{}, error) {
 					},
 				},
 			},
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCCNP transforms a *cilium_v2.CiliumClusterwideNetworkPolicy into a
+// ConvertToCCNP converts a *cilium_v2.CiliumClusterwideNetworkPolicy into a
 // *types.SlimCNP without the Status field of the given CNP, or a
 // cache.DeletedFinalStateUnknown into a cache.DeletedFinalStateUnknown with a
 // *types.SlimCNP, also without the Status field of the given CNP, in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumClusterwideNetworkPolicy
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCCNP(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCCNP(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumClusterwideNetworkPolicy:
-		return &types.SlimCNP{
+		ccnp := &types.SlimCNP{
 			CiliumNetworkPolicy: &cilium_v2.CiliumNetworkPolicy{
 				TypeMeta:   concreteObj.TypeMeta,
 				ObjectMeta: concreteObj.ObjectMeta,
 				Spec:       concreteObj.Spec,
 				Specs:      concreteObj.Specs,
 			},
-		}, nil
+		}
+		return ccnp
+
 	case cache.DeletedFinalStateUnknown:
 		ccnp, ok := concreteObj.Obj.(*cilium_v2.CiliumClusterwideNetworkPolicy)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		slimCNP := &types.SlimCNP{
 			CiliumNetworkPolicy: &cilium_v2.CiliumNetworkPolicy{
@@ -589,36 +591,37 @@ func TransformToCCNP(obj interface{}) (interface{}, error) {
 			Key: concreteObj.Key,
 			Obj: slimCNP,
 		}
-		return dfsu, nil
+		return dfsu
 
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCNP transforms a *cilium_v2.CiliumNetworkPolicy into a
+// ConvertToCNP converts a *cilium_v2.CiliumNetworkPolicy into a
 // *types.SlimCNP without the Status field of the given CNP, or a
 // cache.DeletedFinalStateUnknown into a cache.DeletedFinalStateUnknown with a
 // *types.SlimCNP, also without the Status field of the given CNP, in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumNetworkPolicy
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCNP(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCNP(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumNetworkPolicy:
-		return &types.SlimCNP{
+		cnp := &types.SlimCNP{
 			CiliumNetworkPolicy: &cilium_v2.CiliumNetworkPolicy{
 				TypeMeta:   concreteObj.TypeMeta,
 				ObjectMeta: concreteObj.ObjectMeta,
 				Spec:       concreteObj.Spec,
 				Specs:      concreteObj.Specs,
 			},
-		}, nil
+		}
+		return cnp
 	case cache.DeletedFinalStateUnknown:
 		cnp, ok := concreteObj.Obj.(*cilium_v2.CiliumNetworkPolicy)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
-		return cache.DeletedFinalStateUnknown{
+		dfsu := cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: &types.SlimCNP{
 				CiliumNetworkPolicy: &cilium_v2.CiliumNetworkPolicy{
@@ -628,9 +631,10 @@ func TransformToCNP(obj interface{}) (interface{}, error) {
 					Specs:      cnp.Specs,
 				},
 			},
-		}, nil
+		}
+		return dfsu
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
@@ -677,14 +681,15 @@ func convertToTaints(v1Taints []v1.Taint) []slim_corev1.Taint {
 	return taints
 }
 
-// TransformToNode transforms a *v1.Node into a *types.Node or a
-// cache.DeletedFinalStateUnknown into a cache.DeletedFinalStateUnknown
-// with a *types.Node in its Obj. If the given obj can't be cast into
-// either *v1.Node nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToNode(obj interface{}) (interface{}, error) {
+// ConvertToNode converts a *v1.Node into a
+// *types.Node or a cache.DeletedFinalStateUnknown into
+// a cache.DeletedFinalStateUnknown with a *types.Node in its Obj.
+// If the given obj can't be cast into either *v1.Node
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToNode(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *v1.Node:
-		return &slim_corev1.Node{
+		p := &slim_corev1.Node{
 			TypeMeta: slim_metav1.TypeMeta{
 				Kind:       concreteObj.TypeMeta.Kind,
 				APIVersion: concreteObj.TypeMeta.APIVersion,
@@ -705,13 +710,14 @@ func TransformToNode(obj interface{}) (interface{}, error) {
 			Status: slim_corev1.NodeStatus{
 				Addresses: convertToAddress(concreteObj.Status.Addresses),
 			},
-		}, nil
+		}
+		return p
 	case cache.DeletedFinalStateUnknown:
 		node, ok := concreteObj.Obj.(*v1.Node)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
-		return cache.DeletedFinalStateUnknown{
+		dfsu := cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: &slim_corev1.Node{
 				TypeMeta: slim_metav1.TypeMeta{
@@ -735,151 +741,152 @@ func TransformToNode(obj interface{}) (interface{}, error) {
 					Addresses: convertToAddress(node.Status.Addresses),
 				},
 			},
-		}, nil
+		}
+		return dfsu
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCiliumNode transforms a *cilium_v2.CiliumNode into a
+// ConvertToCiliumNode converts a *cilium_v2.CiliumNode into a
 // *cilium_v2.CiliumNode or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *cilium_v2.CiliumNode in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumNode
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumNode(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumNode(obj interface{}) interface{} {
 	// TODO create a slim type of the CiliumNode
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumNode:
-		return concreteObj, nil
+		return concreteObj
 	case cache.DeletedFinalStateUnknown:
 		ciliumNode, ok := concreteObj.Obj.(*cilium_v2.CiliumNode)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: ciliumNode,
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCiliumExternalWorkload transforms a *cilium_v2.CiliumExternalWorkload into a
+// ConvertToCiliumExternalWorkload converts a *cilium_v2.CiliumExternalWorkload into a
 // *cilium_v2.CiliumExternalWorkload or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *cilium_v2.CiliumExternalWorkload in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumExternalWorkload
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumExternalWorkload(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumExternalWorkload(obj interface{}) interface{} {
 	// TODO create a slim type of the CiliumExternalWorkload
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumExternalWorkload:
-		return concreteObj, nil
+		return concreteObj
 	case cache.DeletedFinalStateUnknown:
 		ciliumExternalWorkload, ok := concreteObj.Obj.(*cilium_v2.CiliumExternalWorkload)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: ciliumExternalWorkload,
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCiliumLocalRedirectPolicy transforms a *cilium_v2.CiliumLocalRedirectPolicy into a
+// ConvertToCiliumLocalRedirectPolicy converts a *cilium_v2.CiliumLocalRedirectPolicy into a
 // *cilium_v2.CiliumLocalRedirectPolicy or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *cilium_v2.CiliumLocalRedirectPolicy in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumLocalRedirectPolicy
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumLocalRedirectPolicy(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumLocalRedirectPolicy(obj interface{}) interface{} {
 	// TODO create a slim type of the CiliumLocalRedirectPolicy
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumLocalRedirectPolicy:
-		return concreteObj, nil
+		return concreteObj
 	case cache.DeletedFinalStateUnknown:
 		ciliumLocalRedirectPolicy, ok := concreteObj.Obj.(*cilium_v2.CiliumLocalRedirectPolicy)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: ciliumLocalRedirectPolicy,
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCiliumEgressGatewayPolicy transforms a *cilium_v2.CiliumEgressGatewayPolicy into a
+// ConvertToCiliumEgressGatewayPolicy converts a *cilium_v2.CiliumEgressGatewayPolicy into a
 // *cilium_v2.CiliumEgressGatewayPolicy or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *cilium_v2.CiliumEgressGatewayPolicy in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumEgressGatewayPolicy
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumEgressGatewayPolicy(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumEgressGatewayPolicy(obj interface{}) interface{} {
 	// TODO create a slim type of the CiliumEgressGatewayPolicy
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumEgressGatewayPolicy:
-		return concreteObj, nil
+		return concreteObj
 	case cache.DeletedFinalStateUnknown:
 		ciliumEgressGatewayPolicy, ok := concreteObj.Obj.(*cilium_v2.CiliumEgressGatewayPolicy)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: ciliumEgressGatewayPolicy,
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCiliumClusterwideEnvoyConfig transforms a *cilium_v2.CiliumClusterwideEnvoyConfig
-// into a *cilium_v2.CiliumClusterwideEnvoyConfig or a cache.DeletedFinalStateUnknown into
+// ConvertToCiliumClusterwideEnvoyConfig converts a *cilium_v2.CiliumClusterwideEnvoyConfig into a
+// *cilium_v2.CiliumClusterwideEnvoyConfig or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *cilium_v2.CiliumClusterwideEnvoyConfig in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumClusterwideEnvoyConfig
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumClusterwideEnvoyConfig(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumClusterwideEnvoyConfig(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumClusterwideEnvoyConfig:
-		return concreteObj, nil
+		return concreteObj
 	case cache.DeletedFinalStateUnknown:
 		ciliumClusterwideEnvoyConfig, ok := concreteObj.Obj.(*cilium_v2.CiliumClusterwideEnvoyConfig)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: ciliumClusterwideEnvoyConfig,
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
-// TransformToCiliumEnvoyConfig transforms a *cilium_v2.CiliumEnvoyConfig into a
+// ConvertToCiliumEnvoyConfig converts a *cilium_v2.CiliumEnvoyConfig into a
 // *cilium_v2.CiliumEnvoyConfig or a cache.DeletedFinalStateUnknown into
 // a cache.DeletedFinalStateUnknown with a *cilium_v2.CiliumEnvoyConfig in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumEnvoyConfig
-// nor cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumEnvoyConfig(obj interface{}) (interface{}, error) {
+// nor cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumEnvoyConfig(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumEnvoyConfig:
-		return concreteObj, nil
+		return concreteObj
 	case cache.DeletedFinalStateUnknown:
 		ciliumEnvoyConfig, ok := concreteObj.Obj.(*cilium_v2.CiliumEnvoyConfig)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		return cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: ciliumEnvoyConfig,
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 
@@ -905,15 +912,27 @@ func ObjToCiliumNode(obj interface{}) *cilium_v2.CiliumNode {
 	return nil
 }
 
-// TransformToCiliumEndpoint transforms a *cilium_v2.CiliumEndpoint into a
+// ConvertToCiliumEndpoint converts a *cilium_v2.CiliumEndpoint into a
+// *types.CiliumEndpoint or a cache.DeletedFinalStateUnknown into a
+// cache.DeletedFinalStateUnknown with a *types.CiliumEndpoint in its Obj.
+// If the given obj can't be cast into either *cilium_v2.CiliumEndpoint nor
+// cache.DeletedFinalStateUnknown, the original obj is returned.
+func ConvertToCiliumEndpoint(obj interface{}) interface{} {
+	if out, err := ConvertToCiliumEndpointOrError(obj); err == nil {
+		return out
+	}
+	return obj
+}
+
+// ConvertToCiliumEndpointOrError converts a *cilium_v2.CiliumEndpoint into a
 // *types.CiliumEndpoint or a cache.DeletedFinalStateUnknown into a
 // cache.DeletedFinalStateUnknown with a *types.CiliumEndpoint in its Obj.
 // If the given obj can't be cast into either *cilium_v2.CiliumEndpoint nor
 // cache.DeletedFinalStateUnknown, an error is returned.
-func TransformToCiliumEndpoint(obj interface{}) (interface{}, error) {
+func ConvertToCiliumEndpointOrError(obj interface{}) (interface{}, error) {
 	switch concreteObj := obj.(type) {
 	case *cilium_v2.CiliumEndpoint:
-		return &types.CiliumEndpoint{
+		p := &types.CiliumEndpoint{
 			TypeMeta: slim_metav1.TypeMeta{
 				Kind:       concreteObj.TypeMeta.Kind,
 				APIVersion: concreteObj.TypeMeta.APIVersion,
@@ -935,13 +954,14 @@ func TransformToCiliumEndpoint(obj interface{}) (interface{}, error) {
 			Identity:   concreteObj.Status.Identity,
 			Networking: concreteObj.Status.Networking,
 			NamedPorts: concreteObj.Status.NamedPorts,
-		}, nil
+		}
+		return p, nil
 	case cache.DeletedFinalStateUnknown:
 		ciliumEndpoint, ok := concreteObj.Obj.(*cilium_v2.CiliumEndpoint)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return nil, fmt.Errorf("unexpected DFSU object type %T", concreteObj.Obj)
 		}
-		return cache.DeletedFinalStateUnknown{
+		dfsu := cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
 			Obj: &types.CiliumEndpoint{
 				TypeMeta: slim_metav1.TypeMeta{
@@ -966,9 +986,10 @@ func TransformToCiliumEndpoint(obj interface{}) (interface{}, error) {
 				Networking: ciliumEndpoint.Status.Networking,
 				NamedPorts: ciliumEndpoint.Status.NamedPorts,
 			},
-		}, nil
+		}
+		return dfsu, nil
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return nil, fmt.Errorf("unexpected object type %T", obj)
 	}
 }
 

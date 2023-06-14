@@ -114,7 +114,7 @@ func enableCCNPWatcher(ctx context.Context, wg *sync.WaitGroup, clientset k8sCli
 				}
 			},
 		},
-		k8s.TransformToCCNP,
+		k8s.ConvertToCCNP,
 		ccnpStore,
 	)
 	mgr := controller.NewManager()

@@ -108,7 +108,7 @@ func CiliumEndpointsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sC
 			&cilium_api_v2.CiliumEndpoint{},
 			0,
 			cacheResourceHandler,
-			transformToCiliumEndpoint,
+			convertToCiliumEndpoint,
 			CiliumEndpointStore,
 		)
 
@@ -123,12 +123,11 @@ func CiliumEndpointsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sC
 	})
 }
 
-// transformToCiliumEndpoint transforms a CiliumEndpoint to a minimal CiliumEndpoint
+// convertToCiliumEndpoint converts a CiliumEndpoint to a minimal CiliumEndpoint
 // containing only a minimal set of entities used to identity a CiliumEndpoint
 // Warning: The CiliumEndpoints created by the converter are not intended to be
-// used for Update operations in k8s. If the given obj can't be cast into either
-// CiliumEndpoint nor DeletedFinalStateUnknown, an error is returned.
-func transformToCiliumEndpoint(obj interface{}) (interface{}, error) {
+// used for Update operations in k8s.
+func convertToCiliumEndpoint(obj interface{}) interface{} {
 	switch concreteObj := obj.(type) {
 	case *cilium_api_v2.CiliumEndpoint:
 		p := &cilium_api_v2.CiliumEndpoint{
@@ -148,11 +147,11 @@ func transformToCiliumEndpoint(obj interface{}) (interface{}, error) {
 			},
 		}
 		*concreteObj = cilium_api_v2.CiliumEndpoint{}
-		return p, nil
+		return p
 	case cache.DeletedFinalStateUnknown:
 		ciliumEndpoint, ok := concreteObj.Obj.(*cilium_api_v2.CiliumEndpoint)
 		if !ok {
-			return nil, fmt.Errorf("unknown object type %T", concreteObj.Obj)
+			return obj
 		}
 		dfsu := cache.DeletedFinalStateUnknown{
 			Key: concreteObj.Key,
@@ -175,9 +174,9 @@ func transformToCiliumEndpoint(obj interface{}) (interface{}, error) {
 		}
 		// Small GC optimization
 		*ciliumEndpoint = cilium_api_v2.CiliumEndpoint{}
-		return dfsu, nil
+		return dfsu
 	default:
-		return nil, fmt.Errorf("unknown object type %T", concreteObj)
+		return obj
 	}
 }
 

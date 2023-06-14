@@ -78,7 +78,7 @@ func (s *ciliumNodeSynchronizer) Start(ctx context.Context, wg *sync.WaitGroup) 
 		connectedToKVStore     = make(chan struct{})
 
 		resourceEventHandler   = cache.ResourceEventHandlerFuncs{}
-		ciliumNodeConvertFunc  = k8s.TransformToCiliumNode
+		ciliumNodeConvertFunc  = k8s.ConvertToCiliumNode
 		ciliumNodeManagerQueue = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 		kvStoreQueue           = workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	)
