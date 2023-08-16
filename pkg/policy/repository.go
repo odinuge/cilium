@@ -145,19 +145,10 @@ type Repository struct {
 // We currently use the K8s namespace label as the key, and if it's not present, we fall back
 // to an empty string. Returns a true if it found a namespace label, and false if not.
 func getShardKey(lbls labels.LabelArray) (string, bool) {
-	key := ""
-	matched := false
-	for _, lbl := range lbls {
-		if lbl.Key == k8sConst.PolicyLabelNamespace && lbl.Source == labels.LabelSourceK8s {
-			// If we find two, ignore then and put them into the non-namespaced for easier housekeeping
-			if matched {
-				return "", false
-			}
-			key = lbl.Value
-			matched = true
-		}
+	if key := findK8sLabel(k8sConst.PolicyLabelNamespace, lbls); key != "" {
+		return key, true
 	}
-	return key, matched
+	return "", false
 }
 
 // getShardKeyFromRule finds the correct shard key to ensure that housekeeping works
@@ -187,21 +178,21 @@ func getShardKeyFromRule(r api.Rule) string {
 	return ""
 }
 
-// getNamespaceFromLabels returns the namespace found in the labels iff there is a single
-// namespace value. If zero or more than one is found, it returns an empty string.
-func getNamespaceFromLabels(lbls labels.LabelArray) string {
-	key := ""
+// findK8sLabel returns the label found in the labels for the given label key iff there is a single
+// unique value in k8s label source. If zero or more than one is found, it returns an empty string.
+func findK8sLabel(key string, lbls labels.LabelArray) string {
+	value := ""
 	matched := false
 	for _, lbl := range lbls {
-		if lbl.Key == k8sConst.PodNamespaceLabel && lbl.Source == labels.LabelSourceK8s {
-			if matched {
+		if lbl.Key == key && lbl.Source == labels.LabelSourceK8s {
+			if matched && value != lbl.Value {
 				return ""
 			}
-			key = lbl.Value
+			value = lbl.Value
 			matched = true
 		}
 	}
-	return key
+	return value
 }
 
 // GetSelectorCache() returns the selector cache used by the Repository
@@ -681,7 +672,7 @@ func (p *Repository) GetRulesMatching(lbls labels.LabelArray) (ingressMatch bool
 	ingressMatch = false
 	egressMatch = false
 
-	key := getNamespaceFromLabels(lbls)
+	key := findK8sLabel(k8sConst.PodNamespaceLabel, lbls)
 	relevantShards := map[string]ruleSlice{
 		key: p.rulesByShard[key],
 		"":  p.rulesByShard[""],
@@ -723,7 +714,7 @@ func (p *Repository) getMatchingRules(securityIdentity *identity.Identity) (
 	matchingRules ruleSlice) {
 
 	matchingRules = []*rule{}
-	key := getNamespaceFromLabels(securityIdentity.LabelArray)
+	key := findK8sLabel(k8sConst.PodNamespaceLabel, securityIdentity.LabelArray)
 	relevantShards := map[string]ruleSlice{
 		key: p.rulesByShard[key],
 		"":  p.rulesByShard[""],
