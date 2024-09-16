@@ -952,21 +952,56 @@ func (a *Allocator) DeleteAllKeys() {
 func (a *Allocator) syncLocalKeys() error {
 	// Create a local copy of all local allocations to not require to hold
 	// any locks while performing kvstore operations. Local use can
-	// disappear while we perform the sync but that is fine as worst case,
-	// a master key is created for a slave key that no longer exists. The
-	// garbage collector will remove it again.
+	// disappear while we perform the sync. For master keys this is fine as
+	// the garbage collector will remove it again. However, for slave keys, they
+	// will continue to exist until the kvstore lease expires after the agent is restarted.
+	// To ensure slave keys are not leaked we do an extra check before recreating a slave key.
 	ids := a.localKeys.getVerifiedIDs()
+	ctx := context.TODO()
 
-	for id, value := range ids {
-		if err := a.backend.UpdateKey(context.TODO(), id, value, false); err != nil {
-			log.WithError(err).WithFields(logrus.Fields{
-				fieldKey: value,
-				fieldID:  id,
-			}).Warning("Unable to sync key")
-		}
+	for id, key := range ids {
+		a.syncLocalKey(ctx, id, key)
 	}
 
 	return nil
+}
+
+func (a *Allocator) syncLocalKey(ctx context.Context, id idpool.ID, key AllocatorKey) {
+	ctx, cancel := context.WithTimeout(ctx, backendOpTimeout)
+	defer cancel()
+
+	encodedKey := key.GetKey()
+	if newId := a.localKeys.lookupKey(encodedKey); newId != id {
+		return
+	}
+	err := a.backend.UpdateKey(ctx, id, key, false)
+	if err != nil {
+		log.WithError(err).WithFields(logrus.Fields{
+			fieldKey: key,
+			fieldID:  id,
+		}).Warning("Error updating key")
+	}
+
+	if newId := a.localKeys.lookupKey(encodedKey); newId != idpool.NoID {
+		return
+	}
+
+	a.slaveKeysMutex.Lock()
+	defer a.slaveKeysMutex.Unlock()
+
+	if newId := a.localKeys.lookupKey(encodedKey); newId == idpool.NoID {
+		log.WithFields(logrus.Fields{
+			fieldKey: key,
+			fieldID:  id,
+		}).Warning("Releasing now unused key that was re-recreated")
+		err = a.backend.Release(ctx, id, key)
+		if err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				fieldKey: key,
+				fieldID:  id,
+			}).Warning("Error releasing unused key")
+		}
+	}
 }
 
 func (a *Allocator) startLocalKeySync() {
